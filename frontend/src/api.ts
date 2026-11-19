@@ -9,7 +9,6 @@ const TOKEN_KEY = "gtm.token";
 export const DEMO = import.meta.env.VITE_DEMO === "true";
 
 export function getToken(): string | null {
-  if (DEMO) return "demo";
   try {
     return localStorage.getItem(TOKEN_KEY);
   } catch {
