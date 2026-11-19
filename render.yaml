@@ -1,0 +1,26 @@
+# Render Blueprint for the backend. Secrets are marked sync: false and set in the Render dashboard.
+services:
+  - type: web
+    name: gtm-strategy-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB
+        value: gtm_strategy
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5-5
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CORS_ORIGIN_REGEX
+        sync: false
