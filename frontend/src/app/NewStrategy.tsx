@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { IconArrowRight, IconDoc, IconGlobe, IconMenu, IconSpark, IconTarget } from "../components/Icons";
+import { IconArrowRight, IconDoc, IconGlobe, IconMenu, IconTarget } from "../components/Icons";
+import { LogoMark } from "../components/Logo";
 import { useShell } from "./AppShell";
 
 /** "acme-labs.io" -> "Acme Labs" */
@@ -57,9 +58,10 @@ export default function NewStrategy() {
       <div className="home">
         <div className="home-inner">
           <div className="home-hero">
-            <div className="orb"><IconSpark size={26} /></div>
+            <div className="orb"><LogoMark size={44} /></div>
             <h1>
-              {greeting()}, {user?.name.split(" ")[0]}. Which product are we taking to market?
+              <span className="hello">{greeting()}, {user?.name.split(" ")[0]}</span>
+              Which product are we taking to market?
             </h1>
             <p>Paste its website. I'll read it, tell you what I understood, and we'll build the strategy together.</p>
           </div>

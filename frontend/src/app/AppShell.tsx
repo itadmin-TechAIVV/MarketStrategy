@@ -4,6 +4,7 @@ import { api, DEMO, type Workspace } from "../api";
 import { useAuth } from "../auth";
 import { IconLogout, IconPlus, IconSearch, IconX } from "../components/Icons";
 import Logo from "../components/Logo";
+import { ThemeSwitch } from "../theme";
 
 export interface ShellContext {
   workspaces: Workspace[] | null;
@@ -15,7 +16,8 @@ export function useShell(): ShellContext {
   return useOutletContext<ShellContext>();
 }
 
-const PALETTE = ["#7c3aed", "#db2777", "#0891b2", "#ea580c", "#059669", "#4f46e5", "#ca8a04"];
+// Muted, varied avatar colours for strategies (no single brand colour).
+const PALETTE = ["#1a73e8", "#188038", "#e37400", "#d93025", "#00796b", "#5f6368", "#b06000"];
 export function colorFor(id: string): string {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -109,6 +111,9 @@ export default function AppShell() {
             ))
           )}
         </nav>
+        <div className="sb-theme">
+          <ThemeSwitch compact />
+        </div>
         <div className="sb-user">
           <span className="avatar">{initials}</span>
           <span className="sb-user-text">

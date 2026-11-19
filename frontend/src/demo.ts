@@ -152,7 +152,7 @@ function briefAsk(s: Section, n: number): Ask {
   const firstLine = s.body_md.split("\n").find((l) => l.trim())?.replace(/^[-*]\s+/, "").replace(/_\(sample\)_/, "").trim() ?? "";
   return {
     intro: `Section ${n} of 9 · **${s.title}** (${s.confidence} confidence)`,
-    questions: [{ id: "ok", text: `${firstLine} Is this right?`, options: ["Looks right (suggested)", "Needs a correction"], allow_free_text: true, multi_select: false }],
+    questions: [{ id: "ok", text: `${firstLine}${/[.!?*]$/.test(firstLine) ? "" : "."} Is this right?`, options: ["Looks right (suggested)", "Needs a correction"], allow_free_text: true, multi_select: false }],
     section_key: s.key,
   };
 }

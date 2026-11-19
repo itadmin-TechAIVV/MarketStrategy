@@ -16,6 +16,7 @@ import {
   IconUsers,
 } from "../components/Icons";
 import Logo, { LogoMark } from "../components/Logo";
+import { ThemeSwitch } from "../theme";
 
 const STAGES: { title: string; text: string; live?: boolean }[] = [
   { title: "What I understood", text: "A sourced brief of your product, from your own website.", live: true },
@@ -47,7 +48,7 @@ export default function LandingPage() {
     <div className="landing">
       <nav className="l-nav">
         <div className="l-container l-nav-inner">
-          <Logo light />
+          <Logo />
           <div className="l-nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
@@ -55,12 +56,13 @@ export default function LandingPage() {
             <a href="#trust">Why trust it</a>
           </div>
           <div className="l-nav-cta">
+            <ThemeSwitch compact />
             {!user && (
-              <Link to="/login" className="btn ghost" style={{ color: "rgba(255,255,255,0.85)" }}>
+              <Link to="/login" className="btn ghost">
                 Log in
               </Link>
             )}
-            <Link to={primary.to} className="btn white">
+            <Link to={primary.to} className="btn primary">
               {user ? "Open app" : "Get started"}
             </Link>
           </div>
@@ -83,7 +85,7 @@ export default function LandingPage() {
             <Link to={primary.to} className="btn primary lg">
               {primary.label} <IconArrowRight size={18} />
             </Link>
-            <a href="#how" className="btn glass lg">
+            <a href="#how" className="btn secondary lg">
               See how it works
             </a>
           </div>
@@ -202,7 +204,7 @@ export default function LandingPage() {
             <LogoMark size={44} />
             <h2>Know how to sell it before you sell it</h2>
             <p>Your strategy feeds straight into lead capture and your CRM, so the whole team works from the same plan.</p>
-            <Link to={primary.to} className="btn white lg">
+            <Link to={primary.to} className="btn primary lg">
               {primary.label} <IconArrowRight size={18} />
             </Link>
           </div>
@@ -228,7 +230,7 @@ function ProductPreview() {
       </div>
       <div className="pv-body">
         <div className="pv-side">
-          <div className="pv-new"><span style={{ color: "var(--v-600)" }}>＋</span> New strategy</div>
+          <div className="pv-new"><span>＋</span> New strategy</div>
           <div className="pv-label">Strategies</div>
           <div className="pv-item on">Your product</div>
           <div className="pv-item">Enterprise add-on</div>
@@ -272,7 +274,7 @@ function ProductPreview() {
             <div><span className="prov website">Website 3</span> <span className="prov user">You 1</span></div>
           </div>
           <div className="pv-sec draft">
-            <div className="pv-sec-head">Firmographics <span className="chip violet">Draft</span></div>
+            <div className="pv-sec-head">Firmographics <span className="chip gray">Draft</span></div>
             <div className="pv-line" style={{ width: "84%" }} />
             <div className="pv-line" style={{ width: "62%" }} />
             <div className="pv-line" style={{ width: "70%" }} />

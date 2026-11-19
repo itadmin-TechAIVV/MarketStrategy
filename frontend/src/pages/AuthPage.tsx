@@ -33,7 +33,7 @@ export default function AuthPage({ mode }: { mode: "login" | "signup" }) {
   return (
     <div className="auth">
       <aside className="auth-art">
-        <Logo light />
+        <Logo />
         <div>
           <blockquote>“Tell me plainly what you understood, and ask me only what you can't know.”</blockquote>
           <div className="auth-points">
@@ -42,7 +42,7 @@ export default function AuthPage({ mode }: { mode: "login" | "signup" }) {
             <div><IconCheck size={18} /> Builds your ICP and strategy one stage at a time</div>
           </div>
         </div>
-        <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.82rem" }}>Your workspaces are private to your organisation.</span>
+        <span className="auth-foot">Your workspaces are private to your organisation.</span>
       </aside>
 
       <div className="auth-form-wrap">
