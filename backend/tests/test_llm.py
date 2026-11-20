@@ -78,3 +78,163 @@ def test_every_tool_converts_to_a_gemini_declaration():
     assert {d.name for d in decls} == {t["name"] for t in TOOLS}
     assert "research_web" in {d.name for d in decls}
     assert all(d.parameters_json_schema["type"] == "object" for d in decls)
+
+
+# ------------------------------------------------------------ model fallback
+import pytest  # noqa: E402
+from google.genai import errors  # noqa: E402
+
+from app.agent import llm  # noqa: E402
+
+
+def api_error(code: int, message: str = "x") -> errors.APIError:
+    return errors.APIError(code, {"error": {"code": code, "message": message, "status": "X"}})
+
+
+@pytest.fixture
+def models(monkeypatch):
+    monkeypatch.setattr(llm, "_models", ["main", "backup", "last"])
+    monkeypatch.setattr(llm, "RETRY_DELAY", 0)
+    monkeypatch.setattr(llm, "_busy_until", {})
+    monkeypatch.setattr(llm, "RATE_LIMIT_WAIT", 0)
+    return llm
+
+
+async def test_missing_model_is_dropped_and_next_used(models):
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if model == "main":
+            raise api_error(404, "not found")
+        return "ok"
+
+    assert await llm.call_with_fallback(call) == "ok"
+    assert seen == ["main", "backup"] and llm._models[0] == "backup"
+
+
+async def test_busy_model_is_retried_then_next_model(models):
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if model == "main":
+            raise api_error(503, "high demand")
+        return model
+
+    assert await llm.call_with_fallback(call) == "backup"
+    assert seen == ["main", "backup"]  # overloaded: switch models straight away
+    assert llm._models[0] == "main"  # busy is temporary; the main model stays first
+    # ...but for the next few minutes the busy model is tried last
+    seen.clear()
+    await llm.call_with_fallback(call)
+    assert seen == ["backup"]
+
+
+async def test_signature_rejection_retries_with_neutral_signatures(models):
+    calls = []
+
+    async def call(model, strip):
+        calls.append(strip)
+        if not strip:
+            raise api_error(400, "Function call is missing a thought_signature")
+        return "ok"
+
+    assert await llm.call_with_fallback(call) == "ok"
+    assert calls == [False, True]
+
+
+async def test_no_retry_after_output_was_streamed(models):
+    async def call(model, strip):
+        raise api_error(503)
+
+    with pytest.raises(llm.LLMError, match="overloaded"):
+        await llm.call_with_fallback(call, can_retry=lambda: False)
+
+
+async def test_all_models_busy_gives_friendly_error(models):
+    async def call(model, strip):
+        raise api_error(429)
+
+    with pytest.raises(llm.LLMError, match="quota or rate limit"):
+        await llm.call_with_fallback(call)
+
+
+async def test_bad_request_is_not_retried(models):
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        raise api_error(400, "invalid argument")
+
+    with pytest.raises(llm.LLMError):
+        await llm.call_with_fallback(call)
+    assert seen == ["main"]
+
+
+def test_stripped_history_uses_neutral_call_signature():
+    history = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [
+            {"type": "text", "text": "Sure", "thought_signature": SIG},
+            {"type": "tool_use", "id": "c1", "name": "crawl_site", "input": {}, "thought_signature": SIG},
+        ]},
+    ]
+    parts = to_contents(history, strip_signatures=True)[1].parts
+    assert parts[0].thought_signature is None
+    assert parts[1].thought_signature == llm.DUMMY_SIGNATURE
+
+
+async def test_silent_model_times_out_and_next_model_answers(models):
+    import asyncio
+
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if model == "main":
+            raise asyncio.TimeoutError()
+        return model
+
+    assert await llm.call_with_fallback(call) == "backup"
+    assert seen == ["main", "backup"]  # no pointless retry of a silent model
+
+
+async def test_deadline_exceeded_goes_straight_to_next_model(models):
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if model == "main":
+            raise api_error(504, "deadline exceeded")
+        return model
+
+    assert await llm.call_with_fallback(call) == "backup"
+    assert seen == ["main", "backup"]
+
+
+async def test_brief_internal_error_is_retried_on_same_model(models):
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if len(seen) == 1:
+            raise api_error(500, "internal")
+        return model
+
+    assert await llm.call_with_fallback(call) == "main"
+    assert seen == ["main", "main"]
+
+
+async def test_all_models_rate_limited_waits_and_tries_again(models, monkeypatch):
+    monkeypatch.setattr(llm, "RATE_LIMIT_WAIT", 0)
+    seen = []
+
+    async def call(model, strip):
+        seen.append(model)
+        if len(seen) <= 3:
+            raise api_error(429, "quota")
+        return model
+
+    assert await llm.call_with_fallback(call) in ("main", "backup", "last")
+    assert len(seen) == 4  # one full round of 429s, then a second round succeeds

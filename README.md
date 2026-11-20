@@ -14,7 +14,7 @@ personas, segments and messaging into both.
 |---|---|---|
 | Backend | Python 3.12, FastAPI, pymongo (async), httpx + trafilatura/BeautifulSoup, `google-genai` SDK | Render (`render.yaml`) |
 | Database | MongoDB Atlas, multi-tenant by `organization_id` | Atlas |
-| AI | Google Gemini (`gemini-flash-latest` by default), streaming, function calling, Google Search grounding | Gemini API |
+| AI | Google Gemini (`gemini-3.8-flash`, with automatic fallback to other Flash models), streaming, function calling, Google Search grounding | Gemini API |
 | Frontend | React 18 + Vite + TypeScript, violet theme | Vercel (`frontend/vercel.json`) |
 
 ## Project layout

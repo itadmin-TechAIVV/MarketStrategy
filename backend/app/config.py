@@ -22,8 +22,10 @@ class Settings(BaseSettings):
 
     # --- Google Gemini ---
     gemini_api_key: SecretStr | None = None
-    # "gemini-flash-latest" is Google's alias for the current Flash model; set an exact model id to pin one.
-    gemini_model: str = "gemini-flash-latest"
+    # Main model. If it is missing or overloaded, the app falls back to GEMINI_FALLBACK_MODELS and then
+    # to the newest Flash models the key can use (see app/agent/llm.py).
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_fallback_models: str = "gemini-3.7-flash,gemini-3.5-flash,gemini-3.5-flash-lite"
     agent_max_tokens: int = 32000
 
     # --- CORS (comma-separated origins, plus an optional regex for Vercel previews) ---

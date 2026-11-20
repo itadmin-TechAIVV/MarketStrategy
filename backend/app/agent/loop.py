@@ -259,12 +259,14 @@ async def _run(org: str, workspace: dict, text: str | None, answers: dict | None
         if ask_block is not None and ask_payload is not None:
             pending = {"tool_use_id": ask_block["id"], "ask": ask_payload, "other_results": results, "asked_at": utcnow()}
             await db.workspaces.update_one({"_id": ws, "organization_id": org}, {"$set": {"pending_ask": pending}})
-            # Keep the question in the transcript display.
-            await db.messages.update_one(
-                {"organization_id": org, "workspace_id": ws},
-                {"$push": {"display": {"kind": "ask", "ask": ask_payload}}},
-                sort=[("seq", -1)],
+            # Keep the question in the transcript display (on the assistant message that asked it).
+            last_msg = await db.messages.find_one(
+                {"organization_id": org, "workspace_id": ws, "role": "assistant"}, {"_id": 1}, sort=[("seq", -1)]
             )
+            if last_msg:
+                await db.messages.update_one(
+                    {"_id": last_msg["_id"]}, {"$push": {"display": {"kind": "ask", "ask": ask_payload}}}
+                )
             await emit({"type": "ask", "ask": ask_payload})
             return
 
