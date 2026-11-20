@@ -6,6 +6,20 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "demo", "--prefix", "frontend"],
       "port": 5174
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd backend && .venv\\Scripts\\python -m uvicorn app.main:app --reload --port 8010"],
+      "port": 8010,
+      "autoPort": false
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend", "--", "--port", "5180", "--strictPort"],
+      "port": 5180,
+      "autoPort": false
     }
   ]
 }

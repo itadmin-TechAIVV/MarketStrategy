@@ -85,8 +85,16 @@ Tests (no network or database needed):
 .\.venv\Scripts\python -m pytest -q
 ```
 
-Optional dev user: `.\.venv\Scripts\python -m scripts.seed_dev you@example.com "a-long-password"`
-(or just sign up in the UI).
+Create users: run `.\create_user.bat` in `backend/` (or double-click it). It asks step by step for
+email, name, organisation (new or existing), role and password. One-line forms for scripting:
+
+```powershell
+.\.venv\Scripts\python -m scripts.create_user add you@example.com --name "Your Name" --org "Acme Inc."
+.\.venv\Scripts\python -m scripts.create_user add teammate@example.com --org-id <org id> --role member
+.\.venv\Scripts\python -m scripts.create_user list
+```
+
+Or just sign up in the UI.
 
 ### Frontend
 
