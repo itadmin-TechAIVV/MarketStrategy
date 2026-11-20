@@ -1,9 +1,9 @@
-"""The agent turn: stream Claude's reply, run tools, persist every message.
+"""The agent turn: stream Gemini's reply, run tools, persist every message.
 
-History is append-only and stored exactly as the API returned it (thinking
-blocks and all). A turn ends when Claude finishes, or when it calls ask_user:
-the question is stored as `pending_ask`, and the user's answers become that
-tool call's result at the start of the next turn.
+History is append-only, in a provider-neutral block format (see llm.py), with
+Gemini's thought signatures kept on the blocks. A turn ends when the model
+finishes, or when it calls ask_user: the question is stored as `pending_ask`,
+and the user's answers become that tool call's result at the start of the next turn.
 """
 from __future__ import annotations
 
@@ -12,37 +12,25 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-import anthropic
 from pymongo import ReturnDocument
 
-from ..config import get_settings
 from ..db import get_db, new_id, utcnow
 from ..services.sections import MongoSectionStore, SectionService
 from ..services.sources import active_sources
+from . import llm
 from .prompts import SYSTEM_PROMPT
 from .stages import STAGE_BY_KEY, STAGES
 from .tools import TOOL_LABELS, TOOLS, Emit, ToolContext, ToolFailure, run_tool, validate_input
 
 log = logging.getLogger(__name__)
 
-MAX_ITERATIONS = 16
+MAX_ITERATIONS = 20
 LOCK_MINUTES = 10
-
-_client: anthropic.AsyncAnthropic | None = None
+BLOCKED_FINISH = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY"}
 
 
 class TurnBusy(Exception):
     pass
-
-
-def get_client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
-        key = get_settings().anthropic_api_key
-        if key is None or not key.get_secret_value():
-            raise RuntimeError("ANTHROPIC_API_KEY is not set in backend/.env")
-        _client = anthropic.AsyncAnthropic(api_key=key.get_secret_value())
-    return _client
 
 
 # ----------------------------------------------------------------- history
@@ -155,11 +143,8 @@ async def run_turn(org: str, ws: str, text: str | None, answers: dict | None, em
     workspace = await _acquire(org, ws)
     try:
         await _run(org, workspace, text, answers, emit)
-    except anthropic.APIStatusError as exc:
-        log.warning("Claude API error %s (request %s)", exc.status_code, getattr(exc, "request_id", None))
-        await emit({"type": "error", "message": f"The AI service returned an error ({exc.status_code}). Please try again."})
-    except anthropic.APIConnectionError:
-        await emit({"type": "error", "message": "Could not reach the AI service. Please try again."})
+    except llm.LLMError as exc:
+        await emit({"type": "error", "message": str(exc)})
     except RuntimeError as exc:
         await emit({"type": "error", "message": str(exc)})
     except Exception:
@@ -173,8 +158,7 @@ async def run_turn(org: str, ws: str, text: str | None, answers: dict | None, em
 async def _run(org: str, workspace: dict, text: str | None, answers: dict | None, emit: Emit) -> None:
     db = get_db()
     ws = workspace["_id"]
-    settings = get_settings()
-    client = get_client()
+    llm.get_client()  # fail fast, before saving anything, if the API key is missing
 
     # 1. Build the user message (answers to a pending question, notes from the app, the user's text).
     content: list[dict] = []
@@ -212,58 +196,42 @@ async def _run(org: str, workspace: dict, text: str | None, answers: dict | None
     await _append(org, ws, "system", await _state_message(org, workspace), [])
 
     ctx = ToolContext(organization_id=org, workspace=workspace, emit=emit)
-    extra: dict[str, Any] = {}
-    if settings.anthropic_fallbacks:
-        extra = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": settings.anthropic_fallbacks}
 
-    json_retries = 0
+    async def on_text(text: str) -> None:
+        await emit({"type": "text", "text": text})
+
+    async def on_tool(name: str) -> None:
+        await emit({"type": "tool", "name": name, "status": "start", "label": TOOL_LABELS.get(name, name)})
+
+    retries = 0
     for _ in range(MAX_ITERATIONS):
         history = await _load_history(org, ws)
-        try:
-            async with client.beta.messages.stream(
-                model=settings.anthropic_model,
-                max_tokens=settings.agent_max_tokens,
-                system=[{"type": "text", "text": SYSTEM_PROMPT}],
-                messages=history,
-                tools=TOOLS,
-                thinking={"type": "adaptive"},
-                output_config={"effort": settings.agent_effort},
-                cache_control={"type": "ephemeral"},
-                **extra,
-            ) as stream:
-                async for event in stream:
-                    if event.type == "content_block_start" and event.content_block.type == "tool_use":
-                        name = event.content_block.name
-                        await emit({"type": "tool", "name": name, "status": "start", "label": TOOL_LABELS.get(name, name)})
-                    elif event.type == "content_block_delta" and event.delta.type == "text_delta":
-                        await emit({"type": "text", "text": event.delta.text})
-                    elif event.type == "content_block_stop":
-                        await emit({"type": "block_end"})
-                final = await stream.get_final_message()
-            json_retries = 0
-        except ValueError:
-            # Tool-input JSON the SDK could not parse at all; re-issue the request (bounded).
-            json_retries += 1
-            if json_retries > 2:
-                raise RuntimeError("The agent produced an unreadable tool call. Please try again.")
-            continue
+        reply = await llm.stream_reply(history, SYSTEM_PROMPT, TOOLS, on_text, on_tool)
+        await emit({"type": "block_end"})
+        blocks = reply.blocks
 
-        blocks = final.to_dict()["content"]
+        if reply.block_reason or reply.finish_reason in BLOCKED_FINISH:
+            log.warning("Gemini blocked the reply: %s %s", reply.block_reason, reply.finish_reason)
+            await emit({"type": "error", "message": "The AI declined to continue this request. Try rephrasing."})
+            return
+        if not blocks:
+            # Empty or malformed reply (Gemini occasionally returns nothing): ask again, a bounded number of times.
+            retries += 1
+            if retries > 2:
+                raise RuntimeError("The AI returned an empty reply. Please send your message again.")
+            continue
+        retries = 0
+
         texts = [b["text"] for b in blocks if b.get("type") == "text" and b.get("text", "").strip()]
         asks = [b for b in blocks if b.get("type") == "tool_use" and b.get("name") == "ask_user"]
         assistant_display = [{"kind": "text", "text": t} for t in texts]
         await _append(org, ws, "assistant", blocks, assistant_display)
 
-        if final.stop_reason == "refusal":
-            await emit({"type": "error", "message": "The agent declined to continue this request."})
-            return
-        if final.stop_reason == "pause_turn":
-            continue
         tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
         if not tool_uses:
+            if reply.finish_reason == "MAX_TOKENS":
+                raise RuntimeError("The agent's reply was cut off. Please ask it to continue.")
             return
-        if final.stop_reason == "max_tokens":
-            raise RuntimeError("The agent's reply was cut off. Please ask it to continue.")
 
         results: list[dict] = []
         ask_block = asks[0] if asks else None
@@ -291,12 +259,14 @@ async def _run(org: str, workspace: dict, text: str | None, answers: dict | None
         if ask_block is not None and ask_payload is not None:
             pending = {"tool_use_id": ask_block["id"], "ask": ask_payload, "other_results": results, "asked_at": utcnow()}
             await db.workspaces.update_one({"_id": ws, "organization_id": org}, {"$set": {"pending_ask": pending}})
-            # Keep the question in the transcript display.
-            await db.messages.update_one(
-                {"organization_id": org, "workspace_id": ws},
-                {"$push": {"display": {"kind": "ask", "ask": ask_payload}}},
-                sort=[("seq", -1)],
+            # Keep the question in the transcript display (on the assistant message that asked it).
+            last_msg = await db.messages.find_one(
+                {"organization_id": org, "workspace_id": ws, "role": "assistant"}, {"_id": 1}, sort=[("seq", -1)]
             )
+            if last_msg:
+                await db.messages.update_one(
+                    {"_id": last_msg["_id"]}, {"$push": {"display": {"kind": "ask", "ask": ask_payload}}}
+                )
             await emit({"type": "ask", "ask": ask_payload})
             return
 
