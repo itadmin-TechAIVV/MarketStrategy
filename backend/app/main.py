@@ -36,6 +36,17 @@ app.include_router(workspaces.router)
 app.include_router(chat.router)
 
 
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+async def root():
+    """Friendly answer for anyone opening the API address in a browser."""
+    return {
+        "service": "GTM Strategy Agent API",
+        "status": "running",
+        "health": "/healthz",
+        "note": "This is the backend. Open the web app to use it.",
+    }
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
