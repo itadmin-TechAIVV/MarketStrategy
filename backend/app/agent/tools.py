@@ -1,7 +1,6 @@
-"""Agent tools: schemas sent to Claude and the server-side handlers that run them.
+"""Agent tools: schemas sent to the model and the server-side handlers that run them.
 
-Inputs stream eagerly, so the server does not validate them; every input is
-validated here with Pydantic before a handler runs.
+Every input is validated here with Pydantic before a handler runs.
 """
 from __future__ import annotations
 
@@ -20,8 +19,10 @@ from ..services.sources import (
     crawl_config,
     known_source_ids,
     page_to_doc,
+    research_doc,
     source_summary,
 )
+from . import llm
 from .stages import STAGE_BY_KEY, STAGES, next_stage
 
 Emit = Callable[[dict], Awaitable[None]]
@@ -46,7 +47,7 @@ class ToolContext:
 
 
 class ToolFailure(Exception):
-    """Raised by a handler; returned to Claude as an is_error tool_result."""
+    """Raised by a handler; returned to the model as an error tool result."""
 
 
 # ------------------------------------------------------------------ inputs
@@ -58,6 +59,10 @@ class CrawlSiteIn(BaseModel):
 class FetchPageIn(BaseModel):
     url: str
     purpose: str = ""
+
+
+class ResearchWebIn(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
 
 
 class ReadSourcesIn(BaseModel):
@@ -100,7 +105,7 @@ class UpdateStrategyIn(BaseModel):
 
 # ------------------------------------------------------------------ schemas
 def _tool(name: str, description: str, schema: dict) -> dict:
-    return {"name": name, "description": description, "input_schema": schema, "eager_input_streaming": True}
+    return {"name": name, "description": description, "input_schema": schema}
 
 
 CLAIM_SCHEMA = {
@@ -117,9 +122,10 @@ TOOLS: list[dict] = [
     _tool(
         "crawl_site",
         "Crawl the workspace's product website (home page + up to ~25 priority internal pages: pricing, product, "
-        "features, solutions, use cases, customers, about, blog). Respects robots.txt. Stores each page as a source "
-        "and returns the list of sources (source_id, url, title, page_type). If pages are already stored it returns "
-        "them without re-crawling unless force=true.",
+        "features, solutions, use cases, customers, about, blog). Handles JavaScript-heavy and bot-protected sites "
+        "with fallbacks. Respects robots.txt. Stores each page as a source and returns the list of sources "
+        "(source_id, url, title, page_type, chars). If pages are already stored it returns them without "
+        "re-crawling unless force=true. If it returns few or thin pages, follow its `next_steps`.",
         {
             "type": "object",
             "properties": {
@@ -136,6 +142,18 @@ TOOLS: list[dict] = [
             "type": "object",
             "properties": {"url": {"type": "string"}, "purpose": {"type": "string"}},
             "required": ["url"],
+        },
+    ),
+    _tool(
+        "research_web",
+        "Research a question with Google Search (e.g. 'What does Acme (acme.com) sell, to whom, and at what price?', "
+        "'Who are Acme's main competitors?', 'Acme customer reviews'). Stores the answer and the web sources it used "
+        "as one source and returns its source_id. Use it when the website could not be read well, or to learn "
+        "about competitors and the market. Cite its source_id for claims you take from it.",
+        {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "A specific research question; name the company and its domain."}},
+            "required": ["query"],
         },
     ),
     _tool(
@@ -212,6 +230,7 @@ TOOLS: list[dict] = [
 TOOL_INPUTS: dict[str, type[BaseModel]] = {
     "crawl_site": CrawlSiteIn,
     "fetch_page": FetchPageIn,
+    "research_web": ResearchWebIn,
     "read_sources": ReadSourcesIn,
     "save_section": SaveSectionIn,
     "ask_user": AskUserIn,
@@ -276,10 +295,13 @@ async def _crawl_site(ctx: ToolContext, args: CrawlSiteIn) -> dict:
     )
     await ctx.emit({"type": "crawl", "status": status, "fetched": len(docs)})
     await ctx.emit({"type": "sources_changed"})
-    return {
+    total_chars = sum(len(d["text"]) for d in docs)
+    out = {
         "pages_stored": len(docs),
+        "total_chars": total_chars,
         "stopped_reason": result.stopped_reason,
         "robots_note": result.robots_note,
+        "notes": result.notes[:10],
         "errors": [f"{u}: {e}" for u, e in result.errors][:10],
         "skipped_count": len(result.skipped),
         "duration_seconds": result.duration_seconds,
@@ -288,6 +310,28 @@ async def _crawl_site(ctx: ToolContext, args: CrawlSiteIn) -> dict:
             for d in docs
         ],
     }
+    if len(docs) < 3 or total_chars < 3000:
+        out["next_steps"] = (
+            "The website gave little readable content. Do not stop or tell the user you could not read it. "
+            "Call research_web about this company (name + domain: what it sells, to whom, pricing, competitors, "
+            "customers), fetch_page any specific pages you know of, then draft the brief from everything you have, "
+            "marking thin areas Low confidence and asking the user about them."
+        )
+    return out
+
+
+async def _research_web(ctx: ToolContext, args: ResearchWebIn) -> dict:
+    await ctx.emit({"type": "tool", "name": "research_web", "status": "start", "label": f"Searching the web: {args.query[:80]}"})
+    try:
+        found = await llm.research_web(args.query)
+    except llm.LLMError as exc:
+        raise ToolFailure(str(exc))
+    if not found["answer"]:
+        raise ToolFailure("Search returned no answer; try a more specific query or ask the user.")
+    doc = research_doc(ctx.organization_id, ctx.workspace_id, args.query, found["answer"], found["sources"])
+    await get_db().sources.insert_one(doc)
+    await ctx.emit({"type": "sources_changed"})
+    return {**source_summary(doc), "answer": found["answer"][:MAX_CHARS_PER_SOURCE], "web_sources": found["sources"]}
 
 
 async def _fetch_page(ctx: ToolContext, args: FetchPageIn) -> dict:
@@ -391,6 +435,7 @@ async def _update_strategy(ctx: ToolContext, args: UpdateStrategyIn) -> dict:
 HANDLERS: dict[str, Callable[[ToolContext, Any], Awaitable[dict]]] = {
     "crawl_site": _crawl_site,
     "fetch_page": _fetch_page,
+    "research_web": _research_web,
     "read_sources": _read_sources,
     "save_section": _save_section,
     "update_strategy": _update_strategy,
@@ -399,6 +444,7 @@ HANDLERS: dict[str, Callable[[ToolContext, Any], Awaitable[dict]]] = {
 TOOL_LABELS = {
     "crawl_site": "Crawling the website",
     "fetch_page": "Fetching a page",
+    "research_web": "Searching the web",
     "read_sources": "Reading pages",
     "save_section": "Saving a section",
     "update_strategy": "Updating the strategy",

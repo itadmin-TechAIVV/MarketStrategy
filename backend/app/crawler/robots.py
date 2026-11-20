@@ -1,10 +1,11 @@
 """robots.txt handling.
 
-Rules (same as major search engines):
-- 2xx: parse and obey.
-- 404 / other 4xx: no restrictions.
-- 401 / 403: treat the whole site as disallowed.
-- 5xx or network failure: treat the whole site as disallowed (we can't know the rules).
+Rules:
+- 2xx: parse and obey (including rules aimed at our crawler by name).
+- Any 4xx, including 401/403: no robots.txt rules apply (Google treats 4xx the same way).
+  Firewalls often answer 403 to non-browser requests even when the site allows crawling.
+- 5xx or network failure: the rules can't be read; crawl conservatively (the crawl is
+  user-initiated, single-site and capped at a few dozen pages) and record a note.
 """
 from __future__ import annotations
 
@@ -43,16 +44,19 @@ def parse_robots(text: str) -> RobotsPolicy:
     return RobotsPolicy(parser=parser, sitemaps=sitemaps)
 
 
-async def fetch_robots(client: httpx.AsyncClient, origin: str, timeout: float) -> RobotsPolicy:
+async def fetch_robots(
+    client: httpx.AsyncClient, origin: str, timeout: float, headers: dict[str, str] | None = None
+) -> RobotsPolicy:
     url = origin.rstrip("/") + "/robots.txt"
     try:
-        resp = await client.get(url, timeout=timeout, follow_redirects=True)
+        resp = await client.get(url, timeout=timeout, follow_redirects=True, headers=headers)
     except httpx.HTTPError as exc:
-        return RobotsPolicy(disallow_all=True, reason=f"robots.txt unreachable ({type(exc).__name__})")
-    if resp.status_code in (401, 403):
-        return RobotsPolicy(disallow_all=True, reason=f"robots.txt returned {resp.status_code}")
+        return RobotsPolicy(allow_all=True, reason=f"robots.txt unreachable ({type(exc).__name__}); crawling conservatively")
     if resp.status_code >= 500:
-        return RobotsPolicy(disallow_all=True, reason=f"robots.txt returned {resp.status_code}")
+        return RobotsPolicy(allow_all=True, reason=f"robots.txt returned {resp.status_code}; crawling conservatively")
     if resp.status_code >= 400:
-        return RobotsPolicy(allow_all=True, reason="no robots.txt")
+        return RobotsPolicy(allow_all=True, reason=f"no robots.txt rules ({resp.status_code})")
+    ctype = resp.headers.get("content-type", "").lower()
+    if "html" in ctype:  # some sites serve their home page or an error page at /robots.txt
+        return RobotsPolicy(allow_all=True, reason="robots.txt is not a rules file")
     return parse_robots(resp.text[:MAX_ROBOTS_BYTES])

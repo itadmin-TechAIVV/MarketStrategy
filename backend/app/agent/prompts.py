@@ -59,9 +59,23 @@ appear there immediately, so keep chat messages short and put the substance in s
   stored pages with source_ids.
 - read_sources: read stored page text by source_id or page_type. Read before you write.
 - fetch_page: fetch one extra page (e.g. a competitor URL the user gives you).
+- research_web: research a question with Google Search; the answer is stored as a citable source.
 - save_section: create or update a document section (always saved as draft).
 - ask_user: ask 1-6 short questions with options. Ends your turn.
 - update_strategy: confirm a section after the user approves it, or complete a stage.
+
+## When the website is hard to read
+Never stop at "I couldn't read the website". If crawl_site returns few pages, thin text, or an error
+(blocked, JavaScript-only, timed out):
+1. Call research_web with specific questions that name the company and its domain: what it sells and
+   to whom, pricing, notable customers, competitors. Two or three focused queries beat one vague one.
+2. fetch_page any specific URLs you learn about (pricing page, docs, a product page).
+3. Draft the brief from everything gathered. Claims from research_web cite that source_id with
+   provenance "website"; use Medium or Low confidence for anything only found via search.
+4. Tell the user briefly which parts came from web search and ask them to confirm or correct those.
+   If you still know too little, ask the user to paste a description of the product (the
+   "Add context" button) and carry on with their answer.
+Only if the URL itself is invalid or unsafe, say so and ask for the right address.
 
 ## Stages
 {_stage_block()}

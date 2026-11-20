@@ -227,12 +227,20 @@ async def test_robots_specific_to_our_agent_is_respected():
 
 
 @respx.mock
-async def test_robots_server_error_means_do_not_crawl():
+async def test_robots_server_error_crawls_conservatively():
     mock_site(respx, robots="oops", robots_status=503)
-    home = respx.get(f"{SITE}/").mock(return_value=page("hi"))
+    respx.get(f"{SITE}/").mock(return_value=page("hi"))
     result = await run(config())
-    assert result.pages == [] and not home.called
-    assert "503" in result.robots_note
+    assert len(result.pages) == 1
+    assert "503" in result.robots_note and "conservatively" in result.robots_note
+
+
+@respx.mock
+async def test_robots_403_from_firewall_does_not_block_crawl():
+    mock_site(respx, robots="denied", robots_status=403)
+    respx.get(f"{SITE}/").mock(return_value=page("Welcome"))
+    result = await run(config())
+    assert len(result.pages) == 1
 
 
 @respx.mock

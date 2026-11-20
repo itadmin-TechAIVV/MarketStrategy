@@ -12,9 +12,9 @@ personas, segments and messaging into both.
 
 | Part | Tech | Deploy |
 |---|---|---|
-| Backend | Python 3.12, FastAPI, pymongo (async), httpx + trafilatura/BeautifulSoup, `anthropic` SDK 2.x | Render (`render.yaml`) |
+| Backend | Python 3.12, FastAPI, pymongo (async), httpx + trafilatura/BeautifulSoup, `google-genai` SDK | Render (`render.yaml`) |
 | Database | MongoDB Atlas, multi-tenant by `organization_id` | Atlas |
-| AI | Claude (`claude-opus-5-5`), streaming, tool use, adaptive thinking | Anthropic API |
+| AI | Google Gemini (`gemini-flash-latest` by default), streaming, function calling, Google Search grounding | Gemini API |
 | Frontend | React 18 + Vite + TypeScript, violet theme | Vercel (`frontend/vercel.json`) |
 
 ## Project layout
@@ -50,9 +50,26 @@ render.yaml            Render blueprint for the backend
 | `users` | `organization_id`, email, bcrypt hash, role |
 | `workspaces` | one per product: website, `current_stage`, crawl status, `pending_ask`, `pending_notes` |
 | `sources` | crawled pages, fetched pages, pasted context: url, page_type, text, `content_hash`, `crawl_run_id` |
-| `messages` | Claude conversation, append-only, stored exactly as returned (plus a `display` view for the UI) |
+| `messages` | agent conversation, append-only, provider-neutral blocks with Gemini thought signatures kept (plus a `display` view for the UI) |
 | `strategy_sections` | `key`, `stage`, `body_md`, `claims[{text, provenance, source_ids}]`, `confidence`, `status` (draft / confirmed / needs_refresh), `version` |
 | `section_versions` | every previous version of a section |
+
+## How the crawler reads difficult websites
+
+`crawl_site` reads the home page plus up to ~25 priority pages, and falls back in layers so a strategy
+can almost always be started:
+
+1. Direct fetch with browser-like headers; one retry on 429/503.
+2. Pages that are blocked (403, bot-protection pages), time out, or have almost no text (built by
+   JavaScript) are re-read through a rendering reader (`CRAWL_READER_URL`, default `https://r.jina.ai/`;
+   free without a key, `JINA_API_KEY` raises its limit; set it empty to turn it off).
+3. If the home page can't be reached, `www.`/non-`www` and `http://` variants are tried.
+4. If the home page exposes few links, common pages (`/pricing`, `/about`, `/features`, ...) are tried.
+5. JSON-LD and Open Graph metadata (product, prices, organisation, FAQ) are added to each page's text.
+6. robots.txt rules are obeyed; a 4xx or unreachable robots.txt no longer blocks the whole crawl.
+
+If the site still yields little, the agent uses `research_web` (Gemini + Google Search) and stores the
+answer, with its web sources, as a citable source. Every URL is SSRF-checked before it is fetched.
 
 ## How the agent behaves
 
@@ -67,7 +84,7 @@ render.yaml            Render blueprint for the backend
 
 ## Run locally
 
-Prerequisites: Python 3.11+, Node 20+, a MongoDB Atlas cluster (or any MongoDB URI), an Anthropic API key.
+Prerequisites: Python 3.11+, Node 20+, a MongoDB Atlas cluster (or any MongoDB URI), a Gemini API key (https://aistudio.google.com/apikey).
 
 ### Backend
 
@@ -75,7 +92,7 @@ Prerequisites: Python 3.11+, Node 20+, a MongoDB Atlas cluster (or any MongoDB U
 cd backend
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
-copy ..\.env.example .env      # then fill in MONGO_URI, JWT_SECRET, ANTHROPIC_API_KEY
+copy ..\.env.example .env      # then fill in MONGO_URI, JWT_SECRET, GEMINI_API_KEY
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -122,7 +139,7 @@ list static IPs per region). On Render's free plan you must allow `0.0.0.0/0`; u
 
 ### Backend on Render
 New → Blueprint → point at this repo (uses `render.yaml`), then set `MONGO_URI`,
-`ANTHROPIC_API_KEY`, `CORS_ORIGINS` (your Vercel URL) and optionally `CORS_ORIGIN_REGEX`
+`GEMINI_API_KEY`, `CORS_ORIGINS` (your Vercel URL) and optionally `CORS_ORIGIN_REGEX`
 (Vercel previews). Free instances sleep after ~15 minutes idle and take ~1 minute to wake;
 a crawl running during a restart is lost (the UI shows the crawl as failed and the agent can re-run it).
 

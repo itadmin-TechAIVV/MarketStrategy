@@ -17,6 +17,12 @@ def crawl_config() -> CrawlConfig:
         max_bytes=s.crawl_max_bytes,
         concurrency=s.crawl_concurrency,
         user_agent=s.crawl_user_agent,
+        browser_user_agent=s.crawl_browser_user_agent,
+        reader_url=s.crawl_reader_url or None,
+        reader_api_key=s.jina_api_key.get_secret_value() if s.jina_api_key else None,
+        reader_max_pages=s.crawl_reader_max_pages,
+        guess_paths=s.crawl_guess_paths,
+        try_host_variants=True,
     )
 
 
@@ -35,9 +41,37 @@ def page_to_doc(org: str, ws: str, page: PageResult, kind: str, crawl_run_id: st
         "content_hash": hashlib.sha256(page.text.encode()).hexdigest(),
         "bytes": page.bytes,
         "truncated": page.truncated,
+        "via": page.via,
         "crawl_run_id": crawl_run_id,
         "active": True,
         "fetched_at": utcnow(),
+    }
+
+
+def research_doc(org: str, ws: str, query: str, answer: str, web_sources: list[dict]) -> dict:
+    """A web-research answer (Gemini + Google Search) stored as one citable source."""
+    lines = [f"Research question: {query}", "", answer]
+    if web_sources:
+        lines += ["", "Web sources:"] + [f"- {s.get('title') or s['url']}: {s['url']}" for s in web_sources]
+    text = "\n".join(lines)
+    return {
+        "_id": new_id(),
+        "organization_id": org,
+        "workspace_id": ws,
+        "kind": "search",
+        "url": None,
+        "title": f"Web research: {query[:120]}",
+        "description": ", ".join((s.get("title") or "") for s in web_sources[:5])[:200],
+        "page_type": "web_research",
+        "text": text,
+        "image_alts": [],
+        "content_hash": hashlib.sha256(text.encode()).hexdigest(),
+        "bytes": len(text.encode()),
+        "truncated": False,
+        "crawl_run_id": None,
+        "active": True,
+        "fetched_at": utcnow(),
+        "web_sources": web_sources,
     }
 
 

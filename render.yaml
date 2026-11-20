@@ -3,6 +3,8 @@ services:
   - type: web
     name: gtm-strategy-api
     runtime: python
+    plan: free
+    region: singapore
     rootDir: backend
     buildCommand: pip install .
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
@@ -13,13 +15,15 @@ services:
       - key: MONGO_URI
         sync: false
       - key: MONGO_DB
-        value: gtm_strategy
+        value: MarketStrategy
       - key: JWT_SECRET
         generateValue: true
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: ANTHROPIC_MODEL
-        value: claude-opus-5-5
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+      - key: JINA_API_KEY
+        sync: false
       - key: CORS_ORIGINS
         sync: false
       - key: CORS_ORIGIN_REGEX

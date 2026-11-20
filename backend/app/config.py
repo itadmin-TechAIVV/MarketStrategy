@@ -20,13 +20,11 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("change-me-in-env")
     jwt_expiry_hours: int = 72
 
-    # --- Anthropic ---
-    anthropic_api_key: SecretStr | None = None
-    anthropic_model: str = "claude-opus-5-5"
-    agent_effort: str = "high"  # low | medium | high | xhigh | max
+    # --- Google Gemini ---
+    gemini_api_key: SecretStr | None = None
+    # "gemini-flash-latest" is Google's alias for the current Flash model; set an exact model id to pin one.
+    gemini_model: str = "gemini-flash-latest"
     agent_max_tokens: int = 32000
-    # Server-side refusal fallbacks ("default" routes by refusal category). Empty string disables.
-    anthropic_fallbacks: str = "default"
 
     # --- CORS (comma-separated origins, plus an optional regex for Vercel previews) ---
     cors_origins: str = "http://localhost:5173"
@@ -35,10 +33,23 @@ class Settings(BaseSettings):
     # --- Crawler limits ---
     crawl_max_pages: int = Field(25, description="Internal pages in addition to the home page")
     crawl_timeout_seconds: float = 10.0
-    crawl_total_budget_seconds: float = 90.0
+    crawl_total_budget_seconds: float = 120.0
     crawl_max_bytes: int = 2_000_000
     crawl_concurrency: int = 4
+    # Name matched against robots.txt rules (sites can still opt out of this crawler by name).
     crawl_user_agent: str = "GTMStrategyBot/0.1 (+strategy research crawler)"
+    # User-Agent header sent with page requests. Many sites refuse requests that don't look like a browser.
+    crawl_browser_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/130.0.0.0 Safari/537.36"
+    )
+    # Reader service for JavaScript-heavy or bot-protected pages (renders the page, returns its text).
+    # Set to an empty string to turn it off. JINA_API_KEY is optional and raises its rate limit.
+    crawl_reader_url: str = "https://r.jina.ai/"
+    jina_api_key: SecretStr | None = None
+    crawl_reader_max_pages: int = 12
+    # Try likely pages (/pricing, /about, ...) when a home page exposes few links.
+    crawl_guess_paths: bool = True
 
     @property
     def cors_origin_list(self) -> list[str]:
