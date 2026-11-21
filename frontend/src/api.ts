@@ -61,12 +61,45 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 // ------------------------------------------------------------------ types
+export type ThemeName = "material" | "warm";
+
+export interface Preferences {
+  theme: ThemeName;
+  /** Jack opens by himself after login while onboarding is active. */
+  jack_autostart: boolean;
+}
+
+export interface Onboarding {
+  day: number;
+  days_left: number;
+  total_days: number;
+  active: boolean;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
   role: string;
   organization: { id: string; name: string };
+  created_at?: string | null;
+  first_login_at?: string | null;
+  password_changed_at?: string | null;
+  preferences?: Preferences;
+  onboarding?: Onboarding;
+}
+
+export type JackAction = "none" | "new_strategy" | "open_strategy" | "open_settings" | "open_security";
+
+export interface JackMessage {
+  id: string;
+  role: "user" | "jack";
+  text: string;
+  suggestions: string[];
+  action: JackAction;
+  strategy_id: string;
+  action_label: string;
+  created_at: string;
 }
 
 export interface Question {
@@ -169,6 +202,24 @@ export const api = {
   login: (email: string, password: string) =>
     request<{ token: string; user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => request<User>("/api/auth/me"),
+
+  updateProfile: (body: { name?: string; organization_name?: string }) =>
+    request<User>("/api/account/profile", { method: "PATCH", body: JSON.stringify(body) }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ token: string; user: User }>("/api/account/password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  updatePreferences: (body: Partial<Preferences>) =>
+    request<Preferences>("/api/account/preferences", { method: "PATCH", body: JSON.stringify(body) }),
+
+  jackMessages: () => request<JackMessage[]>("/api/jack/messages"),
+  askJack: (text: string, page: { path: string; strategy_id?: string | null }) =>
+    request<{ user: JackMessage; jack: JackMessage }>("/api/jack/messages", {
+      method: "POST",
+      body: JSON.stringify({ text, page }),
+    }),
+  clearJack: () => request<void>("/api/jack/messages", { method: "DELETE" }),
 
   listWorkspaces: () => request<Workspace[]>("/api/workspaces"),
   createWorkspace: (product_name: string, website_url: string) =>

@@ -5,6 +5,8 @@ import type {
   AnswerMap,
   Ask,
   Claim,
+  JackMessage,
+  Preferences,
   Section,
   Source,
   Stage,
@@ -30,7 +32,33 @@ let demoUser: User = {
   email: "alex@demo.example",
   role: "admin",
   organization: { id: "demo-org", name: "Demo Organisation" },
+  created_at: new Date().toISOString(),
+  first_login_at: new Date().toISOString(),
+  password_changed_at: null,
+  preferences: { theme: "material", jack_autostart: true },
+  onboarding: { day: 1, days_left: 10, total_days: 10, active: true },
 };
+
+let jackLog: JackMessage[] = [];
+
+/** Canned answers for Jack in demo mode (no model is called). */
+function demoJack(text: string): Omit<JackMessage, "id" | "created_at" | "role"> {
+  const t = text.toLowerCase();
+  const base = { suggestions: [] as string[], action: "none" as JackMessage["action"], strategy_id: "", action_label: "" };
+  if (/password|security/.test(t))
+    return { ...base, text: "You can change your password in **Settings → Security**. Changing it signs out your other devices.", action: "open_security", action_label: "Change password", suggestions: ["How do I change the theme?"] };
+  if (/theme|dark|look|colou?r/.test(t))
+    return { ...base, text: "There are two looks: **Material** (clean and bright) and **Warm** (paper tones, serif headings). Switch in **Settings → Appearance**.", action: "open_settings", action_label: "Open settings", suggestions: ["What does Jack do?"] };
+  if (/start|new|first|begin/.test(t))
+    return { ...base, text: "Paste your product's website on the home screen and press **Start**. I'll read the site and write a brief you confirm section by section. Want to start one now?", action: "new_strategy", action_label: "Start a strategy", suggestions: ["What happens after the brief?", "How are claims sourced?"] };
+  if (/source|claim|website|assumption/.test(t))
+    return { ...base, text: "Every claim is tagged **Website** (with a link), **You** (what you told the agent, which wins) or **Assumption**. Open *Sources* under any section to see them.", suggestions: ["How do I edit a section?"] };
+  if (/edit|confirm|change/.test(t))
+    return { ...base, text: "Use **Edit** on a section to save your own version. It's confirmed right away, and later stages that depend on it get a *Needs refresh* flag.", suggestions: ["How do I export?"] };
+  if (/export|pdf|download|markdown/.test(t))
+    return { ...base, text: "Open the strategy document and use the download icon for **Markdown**, or the printer icon to **save as PDF**.", suggestions: ["What stages are there?"] };
+  return { ...base, text: "This is demo mode, so my answers are canned. Ask me about starting a strategy, sources, editing, exporting, themes or your password.", suggestions: ["How do I start?", "How are claims sourced?"] };
+}
 
 const STAGE_DEFS: [string, string, boolean, [string, string][]][] = [
   ["brief", "What I understood", true, [
@@ -201,6 +229,33 @@ export const demoApi = {
     return { token: "demo", user: demoUser };
   },
   me: async () => demoUser,
+  updateProfile: async (body: { name?: string; organization_name?: string }) => {
+    demoUser = {
+      ...demoUser,
+      name: body.name ?? demoUser.name,
+      organization: { ...demoUser.organization, name: body.organization_name ?? demoUser.organization.name },
+    };
+    return demoUser;
+  },
+  changePassword: async (_current: string, next: string) => {
+    if (next.length < 8) throw new Error("Use at least 8 characters");
+    demoUser = { ...demoUser, password_changed_at: new Date().toISOString() };
+    return { token: "demo", user: demoUser };
+  },
+  updatePreferences: async (body: Partial<Preferences>) => {
+    demoUser = { ...demoUser, preferences: { ...demoUser.preferences!, ...body } };
+    return demoUser.preferences!;
+  },
+  jackMessages: async () => [...jackLog],
+  askJack: async (text: string) => {
+    await delay(500);
+    const now = new Date().toISOString();
+    const user: JackMessage = { id: `u${Date.now()}`, role: "user", text, suggestions: [], action: "none", strategy_id: "", action_label: "", created_at: now };
+    const jack: JackMessage = { id: `j${Date.now()}`, role: "jack", created_at: now, ...demoJack(text) };
+    jackLog = [...jackLog, user, jack];
+    return { user, jack };
+  },
+  clearJack: async () => { jackLog = []; },
   listWorkspaces: async () => {
     ensureSeeded();
     return [...store.values()].map((d) => d.ws).sort((x, y) => y.updated_at.localeCompare(x.updated_at));

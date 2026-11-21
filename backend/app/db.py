@@ -41,6 +41,9 @@ async def ensure_indexes() -> None:
     await db.strategy_sections.create_index(
         [("organization_id", ASCENDING), ("workspace_id", ASCENDING), ("key", ASCENDING)], unique=True
     )
+    await db.jack_messages.create_index(
+        [("organization_id", ASCENDING), ("user_id", ASCENDING), ("created_at", ASCENDING)]
+    )
     await db.section_versions.create_index(
         [("organization_id", ASCENDING), ("workspace_id", ASCENDING), ("key", ASCENDING), ("version", ASCENDING)]
     )

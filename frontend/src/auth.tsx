@@ -7,6 +7,10 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   signup: (data: { organization_name: string; name: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
+  /** Replace the signed-in user (after a profile or preference change). */
+  setUser: (user: User) => void;
+  /** Swap in a new session token, e.g. after a password change. */
+  replaceSession: (token: string, user: User) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -38,6 +42,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       logout,
+      setUser,
+      replaceSession: (token, next) => {
+        setToken(token);
+        setUser(next);
+      },
       login: async (email, password) => {
         const res = await api.login(email, password);
         setToken(res.token);

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
-from .api import chat, workspaces
+from .api import account, chat, jack, workspaces
 from .auth import router as auth_router
 from .config import get_settings
 
@@ -32,6 +32,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(account.router)
+app.include_router(jack.router)
 app.include_router(workspaces.router)
 app.include_router(chat.router)
 
