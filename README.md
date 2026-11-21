@@ -53,6 +53,23 @@ render.yaml            Render blueprint for the backend
 | `messages` | agent conversation, append-only, provider-neutral blocks with Gemini thought signatures kept (plus a `display` view for the UI) |
 | `strategy_sections` | `key`, `stage`, `body_md`, `claims[{text, provenance, source_ids}]`, `confidence`, `status` (draft / confirmed / needs_refresh), `version` |
 | `section_versions` | every previous version of a section |
+| `jack_messages` | the user's chat with Jack (last 60 messages per user) |
+
+`users` also carries `first_login_at` (starts Jack's 10-day onboarding window), `last_login_at`,
+`preferences` (`theme`, `jack_autostart`), `password_changed_at` and `tokens_valid_after` (sessions
+issued before it are rejected, which is how a password change signs out other devices).
+
+## Settings and Jack
+
+- **Settings** opens from the user menu at the bottom of the left panel: Profile (name, organisation for
+  admins), Password & security, Appearance (Material / Warm, saved to the account), Jack, About.
+  API: `PATCH /api/account/profile`, `POST /api/account/password`, `PATCH /api/account/preferences`.
+- **Jack** is the in-app guide (not the strategy agent), opened from "Ask Jack" in the left panel. For the
+  first 10 days after a user's first login he opens by himself once per browser session with a greeting,
+  a tip for that day and a getting-started checklist (switch this off in Settings → Jack). He answers from
+  a fixed description of the app plus the user's own strategies, replies with quick-reply suggestions and
+  can offer one button (start a strategy, open a strategy, open settings, change password).
+  API: `GET/POST/DELETE /api/jack/messages`. Code: `backend/app/agent/jack.py`, `frontend/src/app/jack/`.
 
 ## How the crawler reads difficult websites
 
